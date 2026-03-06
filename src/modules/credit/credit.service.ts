@@ -17,7 +17,7 @@ export async function getAvailableCredits(userId: Types.ObjectId): Promise<numbe
 }
 
 export async function consumeCredits(
-  userId: Types.ObjectId,
+  userId: string,
   amount: number,
   session: mongoose.ClientSession
 ): Promise<void> {

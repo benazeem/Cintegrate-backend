@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError } from "@middleware/error/index.js";
+import { BadRequestError, ConflictError, NotFoundError } from "@middleware/error/index.js";
 import { sanitizeProjectResponse } from "@utils/sanitizeProjectResponse.js";
 import { canTransition, ProjectStatus } from "../rules/projectStatus.js";
 import { ProjectModel } from "@models/Project.js";
@@ -30,6 +30,10 @@ export async function transitionProjectById(
     throw new ConflictError(
       `Cannot transition project status from ${project.status} to ${toStatus}`
     );
+  }
+
+  if (toStatus === "active" && !project.defaultContextProfileId) {
+    throw new BadRequestError("Cannot activate a project without a default context profile");
   }
 
   project.status = toStatus;

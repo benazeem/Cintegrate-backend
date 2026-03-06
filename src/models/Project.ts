@@ -1,11 +1,12 @@
-import { Schema, model, Document, Types, HydratedDocument } from "mongoose";
+import { Schema, model, Document, Types, HydratedDocument } from 'mongoose';
 export interface ProjectType extends Document {
   userId: Types.ObjectId;
   title: string;
   description: string;
-  status: "active" | "draft" | "archive" | "delete";
-  visibility: "public" | "private";  
-  defaultContextProfileId: Types.ObjectId;
+  thumbnail?: string;
+  status: 'active' | 'draft' | 'archive' | 'delete';
+  visibility: 'public' | 'private';
+  defaultContextProfileId?: Types.ObjectId;
   generationCounts: {
     storiesGenerated: number;
     scenesGenerated: number;
@@ -33,20 +34,20 @@ const projectSchema = new Schema<ProjectType>(
     },
     userId: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
     },
     status: {
       type: String,
-      enum: ["active", "draft", "archive", "delete"],
-      default: "active",
+      enum: ['active', 'draft', 'archive', 'delete'],
+      default: 'active',
     },
     visibility: {
       type: String,
-      enum: ["public", "private"],
-      default: "private",
-    }, 
-    defaultContextProfileId: { type: Schema.Types.ObjectId, ref: "ContextProfile", required: true }, 
+      enum: ['public', 'private'],
+      default: 'private',
+    },
+    defaultContextProfileId: { type: Schema.Types.ObjectId, ref: 'ContextProfile' },
     generationCounts: {
       storiesGenerated: { type: Number, default: 0 },
       scenesGenerated: { type: Number, default: 0 },
@@ -62,4 +63,4 @@ projectSchema.index({ userId: 1, status: 1, createdAt: -1 });
 
 export type Project = HydratedDocument<ProjectType>;
 
-export const ProjectModel = model<Project>("Project", projectSchema);
+export const ProjectModel = model<Project>('Project', projectSchema);

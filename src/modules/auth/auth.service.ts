@@ -53,7 +53,7 @@ interface RefreshTokenOutput {
 }
 
 export async function registerUser(input: RegisterInputWithMeta): Promise<SignOutput> {
-  const { email, password, displayName, username, userAgent, ip } = input;
+  const { email, password, name, username, userAgent, ip } = input;
   const existing = await UserModel.findOne({ $or: [{ email }, { username }] });
   if (existing) {
     if (existing.username === username) {
@@ -74,7 +74,7 @@ export async function registerUser(input: RegisterInputWithMeta): Promise<SignOu
           email,
           passwordHash,
           username: userName.toLowerCase(),
-          displayName: displayName ?? email.split('@')[0],
+          displayName: name ?? email.split('@')[0],
         },
       ],
       { session }
@@ -96,7 +96,6 @@ export async function registerUser(input: RegisterInputWithMeta): Promise<SignOu
       ],
       { session }
     );
-    // enqueue welcome email
     sendWelcomeEmail(user.email, user.displayName, user.username);
     return { user, tokens };
   });
@@ -159,7 +158,7 @@ export async function refreshTokens(
   try {
     decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET!) as typeof decoded;
   } catch {
-    throw new UnauthenticatedError('Authentication failed');
+    throw new UnauthenticatedError('No refresh token, Authentication failed');
   }
 
   const session = await SessionModel.findOne({
@@ -170,13 +169,13 @@ export async function refreshTokens(
   }).select('+refreshTokenHash +csrfTokenHash +expiresIn');
 
   if (!session || !session.refreshTokenHash || !session.expiresIn) {
-    throw new UnauthenticatedError('Authentication failed');
+    throw new UnauthenticatedError('No refresh token, Authentication failed');
   }
 
   if (session.expiresIn.getTime() <= Date.now()) {
     await SessionModel.updateOne({ _id: session._id }, { valid: false, revokedAt: new Date() }).exec();
 
-    throw new UnauthenticatedError('Authentication failed: Session expired');
+    throw new UnauthenticatedError('No refresh token, Authentication failed');
   }
 
   const isValidToken = verifyToken(refreshToken, session.refreshTokenHash);
@@ -184,7 +183,7 @@ export async function refreshTokens(
   if (!isValidToken) {
     await SessionModel.updateOne({ _id: session._id }, { valid: false, revokedAt: new Date() }).exec();
 
-    throw new UnauthenticatedError('Authentication failed: Session revoked');
+    throw new UnauthenticatedError('No refresh token, Authentication failed');
   }
 
   const user = await UserModel.findOne({
@@ -193,7 +192,7 @@ export async function refreshTokens(
   });
 
   if (!user) {
-    throw new UnauthenticatedError('Authentication failed');
+    throw new UnauthenticatedError('No refresh token, Authentication failed');
   }
 
   // rotate tokens

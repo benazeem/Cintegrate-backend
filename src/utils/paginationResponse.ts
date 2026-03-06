@@ -1,11 +1,10 @@
-
-import { Pagination  } from "types/Pagination.js";
+import { Pagination } from 'types/Pagination.js';
 
 export function paginationResponse(pagination: Pagination, totalItems: number) {
   return {
     page: pagination.page,
     limit: pagination.limit,
-    totalItems: totalItems,
+    total: totalItems || 0,
     totalPages: Math.ceil(totalItems / pagination.limit),
     hasNext: pagination.page * pagination.limit < totalItems,
     hasPrev: pagination.page > 1,

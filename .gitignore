@@ -4,6 +4,8 @@ Design
 # Node modules
 node_modules/
 
+postman
+
 # Temporary files
 npm-temp/
 temp/

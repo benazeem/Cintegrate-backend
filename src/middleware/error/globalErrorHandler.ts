@@ -21,13 +21,15 @@ const errorHandler = (err: unknown, req: Request, res: Response, _next: NextFunc
     return res.status(err.statusCode).json(err.serialize());
   }
 
+  console.log(err);
   logger.error({
     requestId,
     name: 'UnhandledError',
     message: 'Unhandled exception',
-    stack: err instanceof Error ? err.stack : undefined,
+    stack: process.env.NODE_ENV !== 'production' ? (err as Error).stack : undefined,
     method: req.method,
     path: req.originalUrl,
+    userId: (req as any).user?._id,
   });
 
   return res.status(500).json({

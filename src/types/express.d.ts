@@ -1,10 +1,10 @@
-import { type User } from "@models/User.ts"; // whatever your user type is
-import type { Pagination, Sorting } from "@middleware/paginationAndSorting.js";
-import { type AccountStatus, Role } from "@constants/userConsts.ts";
+import { type User } from '@models/User.ts'; // whatever your user type is
+import type { Pagination, Sorting } from '@middleware/request/paginationAndSorting.js';
+import { type AccountStatus, Role } from '@constants/userConsts.ts';
 
 type AuthenticatedUser = {
   id: string;
-  role: Role; 
+  role: Role;
   accountStatus?: AccountStatus;
 };
 
@@ -12,12 +12,12 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthenticatedUser;
-      sessionId?: string; 
+      sessionId?: string;
       pagination?: Pagination;
       sorting?: Sorting;
       validatedBody?: unknown;
       validatedParams?: unknown;
-      accountStatus?: string; 
+      accountStatus?: string;
     }
   }
 }

@@ -138,7 +138,7 @@ export interface ContextProfile extends Document {
   projectId?: Types.ObjectId;
   scope: ContextScope;
   isDefaultForProject: boolean;
-  parentContextId: Types.ObjectId;
+  parentContextId?: Types.ObjectId;
 
   name: string;
   description?: string;
@@ -198,7 +198,6 @@ const contextProfileSchema = new Schema<ContextProfile>(
     parentContextId: {
       type: Schema.Types.ObjectId,
       ref: 'ContextProfile',
-      required: true,
     },
     name: {
       type: String,
@@ -267,7 +266,7 @@ const contextProfileSchema = new Schema<ContextProfile>(
       {
         name: { type: String, required: true },
         imageUrl: { type: String },
-        description: { type: String, maxlength: 500, required: true },
+        description: { type: String, maxlength: 500 },
         features: { type: Schema.Types.Mixed },
         behaviors: { type: Schema.Types.Mixed },
       },

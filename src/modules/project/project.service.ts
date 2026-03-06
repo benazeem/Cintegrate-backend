@@ -4,7 +4,11 @@ import {
   InternalServerError,
   NotFoundError,
 } from '@middleware/error/index.js';
-import type { CreateProjectInput, UpdateProjectInput } from '@validation/project.schema.js';
+import type {
+  CreateProjectContextInput,
+  CreateProjectInput,
+  UpdateProjectInput,
+} from '@validation/project.schema.js';
 import { ProjectModel, ProjectType } from '@models/Project.js';
 import { sanitizeProjectResponse, sanitizeProjects } from '@utils/sanitizeProjectResponse.js';
 import mongoose, { Types } from 'mongoose';
@@ -16,7 +20,7 @@ import { ContextProfileModel, ContextScope, GenreType } from '@models/ContextPro
 import { NARRATION_PROFILES } from 'constants/narrationProfiles.js';
 
 export async function getProjects(userId: Types.ObjectId | string, pagination: Pagination, sorting: Sorting) {
-  const filter = { userId, status: { $in: ACTIVE_STATUSES } };
+  const filter = { userId, status: { $eq: 'active' } };
   const [projects, total] = await Promise.all([
     ProjectModel.find(filter)
       .skip(pagination.skip)
@@ -27,6 +31,32 @@ export async function getProjects(userId: Types.ObjectId | string, pagination: P
   if (!projects || projects.length === 0) {
     return [[], total];
   }
+  const resProjects = sanitizeProjects(projects);
+  return [resProjects, total];
+}
+
+export async function getDraftProjects(
+  userId: Types.ObjectId | string,
+  pagination: Pagination,
+  sorting: Sorting
+) {
+  const filter = {
+    userId,
+    status: 'draft',
+  };
+
+  const [projects, total] = await Promise.all([
+    ProjectModel.find(filter)
+      .skip(pagination.skip)
+      .limit(pagination.limit)
+      .sort({ [sorting.sortBy]: sorting.sortOrder }),
+    ProjectModel.countDocuments(filter),
+  ]);
+
+  if (!projects || projects.length === 0) {
+    return [[], total];
+  }
+
   const resProjects = sanitizeProjects(projects);
   return [resProjects, total];
 }
@@ -71,13 +101,152 @@ export async function getArchivedProjects(
   return [resProjects, total];
 }
 
+export async function archiveAllProjects(userId: Types.ObjectId | string) {
+  const projects = await ProjectModel.find({
+    userId,
+    status: 'active',
+  }).select('_id');
+
+  if (projects.length === 0) {
+    throw new NotFoundError('No active projects to archive');
+  }
+
+  const ids = projects.map((p) => p._id);
+
+  return transitionManyProjectsByIds(ids, userId, ['active'], 'archive');
+}
+
+export async function deleteAllProjects(userId: Types.ObjectId | string) {
+  const projects = await ProjectModel.find({
+    userId,
+    status: { $ne: 'delete' },
+  }).select('_id');
+
+  if (projects.length === 0) {
+    throw new NotFoundError('No projects to delete');
+  }
+
+  return transitionManyProjectsByIds(
+    projects.map((p) => p._id),
+    userId,
+    ['draft', 'active', 'archive'],
+    'delete'
+  );
+}
+
+export async function restoreAllProjects(userId: Types.ObjectId | string) {
+  const projects = await ProjectModel.find({
+    userId,
+    status: 'delete',
+  }).select('_id');
+
+  if (projects.length === 0) {
+    throw new NotFoundError('No deleted projects to restore');
+  }
+
+  return transitionManyProjectsByIds(
+    projects.map((p) => p._id),
+    userId,
+    ['delete'],
+    'active'
+  );
+}
+
+export async function unarchiveAllProjects(userId: Types.ObjectId | string) {
+  const projects = await ProjectModel.find({
+    userId,
+    status: 'archive',
+  }).select('_id');
+
+  if (projects.length === 0) {
+    throw new NotFoundError('No archived projects to restore');
+  }
+
+  return transitionManyProjectsByIds(
+    projects.map((p) => p._id),
+    userId,
+    ['archive'],
+    'active'
+  );
+}
+
+export async function permanentDeleteAllProjects(userId: Types.ObjectId | string) {
+  const result = await ProjectModel.deleteMany({
+    userId,
+    status: 'delete',
+  });
+
+  if (!result.deletedCount) {
+    throw new NotFoundError('No deleted projects to permanently remove');
+  }
+
+  return { deletedCount: result.deletedCount };
+}
+
+// Bulk or Many
+
+export async function deleteManyProjectsByIds(
+  projectIds: (Types.ObjectId | string)[],
+  userId: Types.ObjectId | string
+) {
+  return transitionManyProjectsByIds(projectIds, userId, ['draft', 'active', 'archive'], 'delete');
+}
+
+export const restoreManyProjectsByIds = async (
+  projectIds: (Types.ObjectId | string)[],
+  userId: Types.ObjectId | string
+) => {
+  const result = await transitionManyProjectsByIds(projectIds, userId, ['delete'], 'active');
+  return result;
+};
+
+export async function archiveManyProjectsByIds(
+  projectIds: (Types.ObjectId | string)[],
+  userId: Types.ObjectId | string
+) {
+  return transitionManyProjectsByIds(projectIds, userId, ['active'], 'archive');
+}
+
+export const unarchiveManyProjectsByIds = async (
+  projectIds: (Types.ObjectId | string)[],
+  userId: Types.ObjectId | string
+) => {
+  const result = await transitionManyProjectsByIds(projectIds, userId, ['archive'], 'active');
+  return result;
+};
+
+export async function permanentDeleteManyProjects(
+  projectIds: (Types.ObjectId | string)[],
+  userId: Types.ObjectId | string
+) {
+  const projects = await ProjectModel.find({
+    _id: { $in: projectIds },
+    userId,
+    status: 'delete',
+  });
+
+  if (projects.length !== projectIds.length) {
+    throw new BadRequestError('Some projects are not deleted');
+  }
+
+  const result = await ProjectModel.deleteMany({
+    _id: { $in: projectIds },
+    userId,
+  });
+
+  return { deletedCount: result.deletedCount || 0 };
+}
+
+// Single
+
 export async function createProject(userId: Types.ObjectId | string, projectInput: CreateProjectInput) {
   const newProject = await ProjectModel.create({
     userId: userId,
     title: projectInput.title,
     description: projectInput.description,
     visibility: projectInput.visibility || 'private',
-    status: projectInput.status,
+    // A project stays draft until a default context profile is attached.
+    status: 'draft',
   });
   if (!newProject) {
     throw new InternalServerError('Failed to create project');
@@ -102,7 +271,11 @@ export async function getProjectById(projectId: Types.ObjectId | string, userId:
   });
 }
 
-export async function createProjectContextProfile(userId: string, projectId: string, payload: any) {
+export async function createProjectContextProfile(
+  userId: string,
+  projectId: string,
+  payload: CreateProjectContextInput
+) {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -112,7 +285,7 @@ export async function createProjectContextProfile(userId: string, projectId: str
       userId,
     }).session(session);
 
-    if (!project) throw new Error('Project not found');
+    if (!project) throw new NotFoundError('Project not found');
 
     const existingContext = await ContextProfileModel.findOne({
       projectId: project._id,
@@ -127,7 +300,7 @@ export async function createProjectContextProfile(userId: string, projectId: str
     if (project.defaultContextProfileId) {
       throw new ForbiddenError('Project already has a default context');
     }
-    let contextProfileId;
+    let contextProfileId: Types.ObjectId | undefined;
 
     if (payload.mode === 'new') {
       const narrationProfile = NARRATION_PROFILES[payload.data.genre as GenreType];
@@ -177,10 +350,20 @@ export async function createProjectContextProfile(userId: string, projectId: str
       contextProfileId = cloned._id;
     }
 
+    if (!contextProfileId) {
+      throw new BadRequestError('Invalid context creation mode');
+    }
+
     project.defaultContextProfileId = contextProfileId;
+    if (project.status === 'draft') {
+      project.status = 'active';
+    }
     await project.save({ session });
     await session.commitTransaction();
-    return project;
+    return sanitizeProjectResponse({
+      project,
+      type: 'getProjectById',
+    });
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -244,6 +427,34 @@ export async function deleteProjectById(projectId: Types.ObjectId | string, user
   };
 }
 
+export async function permanentDeleteProjectById(
+  projectId: Types.ObjectId | string,
+  userId: Types.ObjectId | string
+) {
+  const project = await ProjectModel.findOne({
+    _id: projectId,
+    userId,
+  }).select('_id status');
+
+  if (!project) {
+    throw new NotFoundError('Project not found');
+  }
+
+  if (project.status !== 'delete') {
+    throw new ForbiddenError('Project must be deleted before permanent removal');
+  }
+
+  await ProjectModel.deleteOne({
+    _id: project._id,
+    userId,
+  });
+
+  return {
+    status: 'success',
+    message: 'Project permanently deleted',
+  };
+}
+
 export async function updateProjectVisibility(
   projectId: Types.ObjectId | string,
   userId: Types.ObjectId | string,
@@ -291,22 +502,6 @@ export async function unarchiveProjectById(
   const result = await transitionProjectById(projectId, userId, ['archive'], 'active');
   return result;
 }
-
-export const restoreManyProjectsByIds = async (
-  projectIds: (Types.ObjectId | string)[],
-  userId: Types.ObjectId | string
-) => {
-  const result = await transitionManyProjectsByIds(projectIds, userId, 'delete', 'active');
-  return result;
-};
-
-export const unarchiveManyProjectsByIds = async (
-  projectIds: (Types.ObjectId | string)[],
-  userId: Types.ObjectId | string
-) => {
-  const result = await transitionManyProjectsByIds(projectIds, userId, 'archive', 'active');
-  return result;
-};
 
 // Future Possible Functions: ArchiveManyProjectsByIds, DeleteManyProjectsByIds
 // Remember to handle visibility changes when archiving or deleting projects

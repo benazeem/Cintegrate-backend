@@ -20,7 +20,7 @@ import {
   setStoryContextController,
   addStoryContextController,
 } from './story.controller.js';
-import { paginationAndSortingMiddleware } from '@middleware/paginationAndSorting.js';
+import { paginationAndSortingMiddleware } from '@middleware/request/paginationAndSorting.js';
 import { asyncHandler } from '@utils/asyncHandler.js';
 import { projectIdParamSchema } from '@validation/project.schema.js';
 import { validateParams } from '@validation/validateParams.js';

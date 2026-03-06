@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+
+    container_name: backend-dev
+
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+    env_file:
+      - .env
+
+    ports:
+      - "4000:4000"
+
+    command: npm run dev

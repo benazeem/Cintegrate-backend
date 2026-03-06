@@ -1,17 +1,20 @@
 import { Router } from "express";
 import { 
+  createContextProfileController,
   getContextProfileController,
   listContextProfilesController,
 } from "./contextProfile.controller.js";
+import { asyncHandler } from "@utils/asyncHandler.js";
+import { validateBody } from "@validation/validateBody.js";
+import { createContextProfileSchema } from "@validation/contextProfile.schema.js";
 
 const router = Router();
  
-// Future question: Do we want users to create context profiles directly?
-// router.post("/", createContextProfileController);
+router.post("/", validateBody(createContextProfileSchema), asyncHandler(createContextProfileController));
 // router.post("/:contextId/clone", cloneContextProfileController);
  
-router.get("/:contextId", getContextProfileController);
+router.get("/:contextId", asyncHandler(getContextProfileController));
  
-router.get("/", listContextProfilesController);
+router.get("/", asyncHandler(listContextProfilesController));
 
 export default router;

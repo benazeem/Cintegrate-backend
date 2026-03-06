@@ -38,7 +38,7 @@ export const getProfileController = async (req: Request, res: Response) => {
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
-    plan: user.plan,
+    plan: user.currentPlan,
     emailVerified: user.emailVerified,
     links: user.links,
     usage: user.usage,

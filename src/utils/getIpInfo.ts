@@ -1,4 +1,4 @@
-import { fetch } from "undici";
+import { fetch } from 'undici';
 
 interface IpInfo {
   ipVersion: number;
@@ -26,11 +26,9 @@ export async function getIpInfo(ip: string) {
   try {
     const res = await fetch(`https://free.freeipapi.com/api/json/${ip}`);
     const data = (await res.json()) as IpInfo;
-    if (!data || !data.cityName || !data.countryName) {
-      return { city: "Unknown", country: "Unknown" };
-    }
-    return data;
+    return { success: true, ...data };
   } catch (e) {
-    return { city: "Unknown", country: "Unknown" };
+    console.error('Error fetching IP info:', e);
+    return { success: false, message: 'Failed to fetch IP info' };
   }
 }

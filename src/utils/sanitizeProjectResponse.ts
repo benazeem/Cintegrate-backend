@@ -24,6 +24,7 @@ const sanitizeProjectResponse = ({ project, type = 'getProjectById' }: ProjectRe
         description: project.description,
         visibility: project.visibility,
         status: project.status,
+        defaultContextProfileId: project.defaultContextProfileId,
         contextProfileId: project.defaultContextProfileId,
         generationCounts: project.generationCounts,
         createdAt: project.createdAt,

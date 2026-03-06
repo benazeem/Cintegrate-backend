@@ -22,6 +22,7 @@ import {
   assertStoryIsDeleted,
   assertStoryNotDeleted,
 } from 'domain/assertions/assertStoryState.js';
+import { consumeCredits } from '@modules/credit/credit.service.js';
 
 export async function getUserStories(userId: string, pagination: Pagination, sorting: Sorting) {
   const [stories, total] = await Promise.all([
@@ -112,9 +113,18 @@ export async function getProjectArchivedStories(
 //TODO: 31/01/2026 Implement hard time limit for Story based on permissions
 
 export async function createStory(userId: string, projectId: string, payload: CreateStoryInput) {
+  const project = await ProjectModel.findOne({ _id: projectId, userId });
+  if (!project) {
+    throw new NotFoundError('Project not found');
+  }
+  if (!project.defaultContextProfileId) {
+    throw new ConflictError('Project does not have a default context profile set');
+  }
+
   const story = await StoryModel.create({
     userId,
     projectId,
+    contextProfileId: project.defaultContextProfileId,
     title: payload.title,
     description: payload.description,
     timeLimit: payload.timeLimit,
@@ -297,7 +307,8 @@ export async function generateStory(userId: string, storyId: string) {
   return withTransaction(async (session) => {
     const story = await validateStoryOwnership(userId, storyId, session);
     const contextProfile = await ContextProfileModel.findById(story.contextProfileId).session(session);
-
+    
+    console.log(userId)
     const prompt = generateStoryPrompt({
       title: story.title,
       description: story.description,
@@ -307,11 +318,11 @@ export async function generateStory(userId: string, storyId: string) {
       contextProfile: contextProfile,
     });
 
-    // put this AI generation service in a different location which also have quality level understanding and control
+    await consumeCredits(userId, 10, session);
     let response;
     try {
       response = await openRouterAI(prompt);
-    } catch (err) {
+    } catch (err) { 
       throw new ConflictError('AI generation failed, please try again.');
     }
     const rawcontent = response.choices[0].message?.content || '';
@@ -319,10 +330,10 @@ export async function generateStory(userId: string, storyId: string) {
       throw new ConflictError('AI generation returned empty content, please try again.');
     }
     const content = safeParseJSON(rawcontent);
-    // Consume credits to be implemented here
+    if (!content.story || !content.summary) {
+      throw new ConflictError('Error parsing AI generated content, please try again.');
+    }
 
-      // TODO: Consume credits to be implemented here
-      // await consumeCredits(userId, 'story_generation', session);
     const updatedStory = await StoryModel.findOneAndUpdate(
       { _id: storyId, userId },
       {
@@ -362,6 +373,7 @@ export async function regenerateStory(userId: string, storyId: string, extraProm
       extraPrompt: extraPrompt.prompt,
       contextProfile: contextProfile,
     });
+    await consumeCredits(userId, 5, session);
     let response;
     try {
       response = await openRouterAI(prompt);
@@ -373,7 +385,9 @@ export async function regenerateStory(userId: string, storyId: string, extraProm
       throw new ConflictError('AI regeneration returned empty content, please try again.');
     }
     const content = safeParseJSON(rawcontent);
-
+    if (!content.story || !content.summary) {
+      throw new ConflictError('Error parsing AI regenerated content, please try again.');
+    }
     const updatedStory = await StoryModel.findOneAndUpdate(
       { _id: storyId, userId },
       {

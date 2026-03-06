@@ -90,11 +90,7 @@ export const deleteSessionParamsSchema = z
     sessionId: z.string().min(1),
   })
   .strict();
-
-/* -------------------------
-   Types
-   -------------------------*/
-
+ 
 export type UpdateAvatarType = z.infer<typeof updateAvatarSchema>;
 export type UpdateProfileType = z.infer<typeof updateProfileSchema>;
 export type UpdateNotificationsType = z.infer<typeof updateNotificationsSchema>;
@@ -105,7 +101,4 @@ export type UpdatePasswordType = z.infer<typeof updatePasswordSchema>;
 export type UpdateEmailType = z.infer<typeof updateEmailSchema>;
 export type DeleteAllSessionsType = z.infer<typeof deleteAllSessionsSchema>;
 export type DeleteSessionParamsType = z.infer<typeof deleteSessionParamsSchema>;
-
-/* -------------------------
-   Middleware helpers
-   -------------------------*/
+ 

@@ -38,7 +38,7 @@ import {
 import multer from 'multer';
 import { videoAssetUpload } from '@middleware/multer/videoAssetUpload.js';
 import { imageAssetUpload } from '@middleware/multer/imageAssetUpload.js';
-import { paginationAndSortingMiddleware } from '@middleware/paginationAndSorting.js';
+import { paginationAndSortingMiddleware } from '@middleware/request/paginationAndSorting.js';
 
 const router = Router();
 

@@ -1,12 +1,20 @@
 import { Request, Response } from 'express';
 import {
+  archiveAllProjects,
+  archiveManyProjectsByIds,
   createProject,
   createProjectContextProfile,
+  deleteAllProjects,
+  deleteManyProjectsByIds,
   deleteProjectById,
   getArchivedProjects,
   getDeletedProjects,
   getProjectById,
   getProjects,
+  permanentDeleteAllProjects,
+  permanentDeleteManyProjects,
+  permanentDeleteProjectById,
+  restoreAllProjects,
   restoreManyProjectsByIds,
   restoreProjectById,
   unarchiveManyProjectsByIds,
@@ -14,6 +22,8 @@ import {
   updateProjectById,
   updateProjectStatus,
   updateProjectVisibility,
+  unarchiveAllProjects,
+  getDraftProjects,
 } from './project.service.js';
 import { Types } from 'mongoose';
 import {
@@ -30,6 +40,23 @@ export const getProjectsController = async (req: Request, res: Response) => {
   const userId = req.user!.id;
   const [projects, total] = await getProjects(userId, pagination, sorting);
   const paginationRes = paginationResponse(pagination, total as number);
+  return res.status(200).json({
+    items: projects,
+    pagination: {
+      ...paginationRes,
+    },
+  });
+};
+
+export const getDraftProjectsController = async (req: Request, res: Response) => {
+  const pagination = req.pagination!;
+  const sorting = req.sorting!;
+  const userId = req.user!.id;
+
+  const [projects, total] = await getDraftProjects(userId, pagination, sorting);
+
+  const paginationRes = paginationResponse(pagination, total as number);
+
   return res.status(200).json({
     items: projects,
     pagination: {
@@ -63,6 +90,90 @@ export const getArchivedProjectsController = async (req: Request, res: Response)
       ...paginationRes,
     },
   });
+};
+
+export const archiveAllProjectsController = async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+
+  const result = await archiveAllProjects(userId);
+
+  return res.status(200).json(result);
+};
+
+export const unarchiveAllProjectsController = async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+
+  const result = await unarchiveAllProjects(userId);
+
+  return res.status(200).json(result);
+};
+
+export const deleteAllProjectsController = async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+
+  const result = await deleteAllProjects(userId);
+
+  return res.status(200).json(result);
+};
+
+export const permanentDeleteAllProjectsController = async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+
+  const result = await permanentDeleteAllProjects(userId);
+
+  return res.status(200).json(result);
+};
+
+export const restoreAllProjectsController = async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+
+  const result = await restoreAllProjects(userId);
+
+  return res.status(200).json(result);
+};
+
+// Many or Bulk
+export const deleteManyProjectsController = async (req: Request, res: Response) => {
+  const { projectIds } = req.validatedBody as UpdateManyIdsInput;
+  const userId = req.user!.id;
+
+  const result = await deleteManyProjectsByIds(projectIds, userId);
+
+  return res.status(200).json(result);
+};
+
+export const permanentDeleteManyProjectsController = async (req: Request, res: Response) => {
+  const { projectIds } = req.validatedBody as UpdateManyIdsInput;
+  const userId = req.user!.id;
+
+  const result = await permanentDeleteManyProjects(projectIds, userId);
+
+  return res.status(200).json(result);
+};
+
+export const restoreManyProjectsController = async (req: Request, res: Response) => {
+  const { projectIds } = req.validatedBody as UpdateManyIdsInput;
+  const userId = req.user!.id;
+  const restoredProjects = await restoreManyProjectsByIds(projectIds, userId);
+
+  return res.status(200).json(restoredProjects);
+};
+
+export const archiveManyProjectsController = async (req: Request, res: Response) => {
+  const { projectIds } = req.validatedBody as UpdateManyIdsInput;
+  const userId = req.user!.id;
+
+  const result = await archiveManyProjectsByIds(projectIds, userId);
+
+  return res.status(200).json(result);
+};
+
+export const unarchiveManyProjectsController = async (req: Request, res: Response) => {
+  const { projectIds } = req.validatedBody as UpdateManyIdsInput;
+  const userId = req.user!.id;
+  const unarchivedProjects = await unarchiveManyProjectsByIds(projectIds, userId);
+
+  return res.status(200).json(unarchivedProjects);
 };
 
 export const postProjectController = async (req: Request, res: Response) => {
@@ -102,6 +213,15 @@ export const deleteProjectByIdController = async (req: Request, res: Response) =
   return res.status(200).json(response);
 };
 
+export const permanentDeleteProjectByIdController = async (req: Request, res: Response) => {
+  const projectId = req.params.projectId as Types.ObjectId | string;
+  const userId = req.user!.id;
+
+  const result = await permanentDeleteProjectById(projectId, userId);
+
+  return res.status(200).json(result);
+};
+
 export const updateProjectStatusController = async (req: Request, res: Response) => {
   const projectId = req.params.projectId as Types.ObjectId | string;
   const { status } = req.body;
@@ -130,20 +250,4 @@ export const unarchiveProjectByIdController = async (req: Request, res: Response
   const userId = req.user!.id;
   const unarchivedProject = await unarchiveProjectById(projectId, userId);
   return res.status(200).json(unarchivedProject);
-};
-
-export const restoreManyProjectsController = async (req: Request, res: Response) => {
-  const { projectIds } = req.validatedBody as UpdateManyIdsInput;
-  const userId = req.user!.id;
-  const restoredProjects = await restoreManyProjectsByIds(projectIds, userId);
-
-  return res.status(200).json(restoredProjects);
-};
-
-export const unarchiveManyProjectsController = async (req: Request, res: Response) => {
-  const { projectIds } = req.validatedBody as UpdateManyIdsInput;
-  const userId = req.user!.id;
-  const unarchivedProjects = await unarchiveManyProjectsByIds(projectIds, userId);
-
-  return res.status(200).json(unarchivedProjects);
 };
