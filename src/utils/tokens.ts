@@ -1,6 +1,8 @@
 import jwt, { type SignOptions } from "jsonwebtoken";
 import crypto from "crypto";
-import type { ObjectIdSchemaDefinition } from "mongoose";
+import type { Types } from "mongoose";
+import { UnauthenticatedError } from "@middleware/error/index.js";
+import { AccountStatus } from "@constants/userConsts.js";
 
 const ACCESS_TOKEN_EXPIRES_IN: SignOptions["expiresIn"] = process.env
   .ACCESS_TOKEN_EXPIRES_IN as SignOptions["expiresIn"];
@@ -28,9 +30,21 @@ export function verifyToken(rawToken: string, tokenHash: string) {
     tokenHashBuffer.length !== providedHashBuffer.length ||
     !crypto.timingSafeEqual(tokenHashBuffer, providedHashBuffer)
   ) {
-    throw new Error("Invalid or expired token");
+    throw new UnauthenticatedError("Invalid or expired token");
   }
 
+  return true;
+}
+
+export function compareHashTokens(hash1: string, hash2: string): boolean {
+  const hash1Buffer = Buffer.from(hash1, "hex");
+  const hash2Buffer = Buffer.from(hash2, "hex");
+  if (
+    hash1Buffer.length !== hash2Buffer.length ||
+    !crypto.timingSafeEqual(hash1Buffer, hash2Buffer)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -41,17 +55,15 @@ export function hashToken(rawToken: string) {
 export function generateSessionId() {
   return crypto.randomBytes(32).toString("hex");
 }
-export function generateAccessToken(
-  userId: ObjectIdSchemaDefinition,
-  sessionId: string
-) {
-  return jwt.sign({ userId, sessionId }, ACCESS_TOKEN_SECRET, {
+export function generateAccessToken(userId: Types.ObjectId, sessionId: string, role: string, accountStatus?: AccountStatus) {
+  return jwt.sign({ userId, sessionId, role, accountStatus }, ACCESS_TOKEN_SECRET, {
     expiresIn: ACCESS_TOKEN_EXPIRES_IN,
   });
 }
 export function generateRefreshToken(
-  userId: ObjectIdSchemaDefinition,
-  sessionId: string
+  userId: Types.ObjectId,
+  sessionId: string,
+  reduceTime: boolean = false
 ) {
   return jwt.sign({ userId, sessionId }, REFRESH_TOKEN_SECRET, {
     expiresIn: REFRESH_TOKEN_EXPIRES_IN,
@@ -59,10 +71,6 @@ export function generateRefreshToken(
 }
 
 export function generateCsrfToken() {
-  const token = crypto.randomBytes(24).toString("hex");
-  const signed = crypto
-    .createHmac("sha256", process.env.CSRF_SECRET!)
-    .update(token)
-    .digest("hex");
-  return `${token}.${signed}`;
+  const token = crypto.randomBytes(24).toString("hex"); 
+  return token;
 }

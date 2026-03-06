@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router } from 'express';
 import {
   forgotPasswordController,
   loginController,
@@ -9,60 +9,46 @@ import {
   emailVerificationController,
   verifyEmailController,
   verifyEmailChangeController,
-} from "./auth.controller.js";
+} from './auth.controller.js';
 import {
   forgotPasswordSchema,
   loginSchema,
   registerSchema,
   resetPasswordSchema,
-  validateBody,
   verifyEmailSchema,
-} from "@validation/auth.schema.js";
-import { asyncHandler } from "@utils/asyncHandler.js";
-import { requireAuth as auth } from "@middleware/auth/requireAuth.js";
+  verifyUpdateEmailSchema,
+} from '@validation/auth.schema.js';
+import { validateBody } from '@validation/validateBody.js';
+import { asyncHandler } from '@utils/asyncHandler.js';
+import { authMiddleware } from '@middleware/auth/requireAuth.js';
+import { csrfMiddleware } from '@middleware/security/requireCsrf.js';
 
 const router = Router();
 
-// POST /api/auth/register
-router.post(
-  "/register",
-  validateBody(registerSchema),
-  asyncHandler(registerController)
-);
+router.post('/register', validateBody(registerSchema), asyncHandler(registerController));
+router.post('/login', validateBody(loginSchema), asyncHandler(loginController));
+router.post('/forgot-password', validateBody(forgotPasswordSchema), asyncHandler(forgotPasswordController));
 
-router.post("/login", validateBody(loginSchema), asyncHandler(loginController));
-router.post(
-  "/forgot-password",
-  validateBody(forgotPasswordSchema),
-  asyncHandler(forgotPasswordController)
-);
+router.post('/reset-password', validateBody(resetPasswordSchema), asyncHandler(resetPasswordController));
+
+router.post('/refresh-session', asyncHandler(refreshTokenController));
+
+router.post('/email/verification', authMiddleware, asyncHandler(emailVerificationController));
 
 router.post(
-  "/reset-password",
-  validateBody(resetPasswordSchema),
-  asyncHandler(resetPasswordController)
-);
-
-router.post("/refresh-token", asyncHandler(refreshTokenController));
-
-router.post(
-  "/email/verification",
-  auth,
-  asyncHandler(emailVerificationController)
-);
-
-router.post(
-  "/email/verify",
+  '/email/verify',
+  authMiddleware,
   validateBody(verifyEmailSchema),
   asyncHandler(verifyEmailController)
 );
 
 router.post(
-  "/email/verify-change",
-  validateBody(verifyEmailSchema),
+  '/email/verify-change',
+  authMiddleware,
+  validateBody(verifyUpdateEmailSchema),
   asyncHandler(verifyEmailChangeController)
-)
+);
 
-router.post("/logout", asyncHandler(logoutController));
+router.post('/logout', authMiddleware, csrfMiddleware, asyncHandler(logoutController));
 
 export default router;

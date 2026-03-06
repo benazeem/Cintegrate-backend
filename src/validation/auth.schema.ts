@@ -1,6 +1,6 @@
 // src/validation/auth.schema.ts
-import { z } from "zod";
-import type { Request, Response, NextFunction } from "express";
+import { z } from 'zod';
+import type { Request, Response, NextFunction } from 'express';
 
 /**
  * Password policy:
@@ -11,14 +11,11 @@ const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
 
 const registerSchema = z
   .object({
-    email: z.email({ message: "Invalid email address" }),
+    email: z.email({ message: 'Invalid email address' }),
 
-    password: z
-      .string()
-      .min(8, { message: "Password must be at least 8 characters" })
-      .regex(passwordRegex, {
-        message: "Password must contain at least one letter and one number",
-      }),
+    password: z.string().min(8, { message: 'Password must be at least 8 characters' }).regex(passwordRegex, {
+      message: 'Password must contain at least one letter and one number',
+    }),
 
     confirmPassword: z.string(),
 
@@ -30,49 +27,49 @@ const registerSchema = z
       .min(3)
       .max(30)
       .regex(/^[a-z0-9\-_]+$/, {
-        message:
-          "Username may contain letters, numbers, dash and underscore only",
+        message: 'Username may contain letters, numbers, dash and underscore only',
       }),
 
-    displayName: z.string().trim().min(1).max(80),
+    name: z.string().trim().min(1, 'Name is required').max(80, 'Name is too long'),
   })
   .superRefine((data, ctx) => {
     if (data.password !== data.confirmPassword) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["confirmPassword"],
-        message: "Passwords do not match",
+        path: ['confirmPassword'],
+        message: 'Passwords do not match',
       });
     }
   })
   .strict();
 
-const loginSchema = z.object({
-  email: z.email(),
-  password: z.string().min(1, "Password is required"),
-}).strict();
+const loginSchema = z
+  .object({
+    email: z.email(),
+    password: z.string().min(1, 'Password is required'),
+  })
+  .strict();
 
-const forgotPasswordSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
-}).strict();
+const forgotPasswordSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email(),
+  })
+  .strict();
 
 const resetPasswordSchema = z
   .object({
     token: z.string().min(10), // whatever length you expect
-    password: z
-      .string()
-      .min(8, { message: "Password must be at least 8 characters" })
-      .regex(passwordRegex, {
-        message: "Password must contain at least one letter and one number",
-      }),
+    password: z.string().min(8, { message: 'Password must be at least 8 characters' }).regex(passwordRegex, {
+      message: 'Password must contain at least one letter and one number',
+    }),
     confirmPassword: z.string(),
   })
   .superRefine((data, ctx) => {
     if (data.password !== data.confirmPassword) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["confirmPassword"],
-        message: "Passwords do not match",
+        path: ['confirmPassword'],
+        message: 'Passwords do not match',
       });
     }
   })
@@ -84,11 +81,19 @@ const verifyEmailSchema = z
   })
   .strict();
 
+const verifyUpdateEmailSchema = z
+  .object({
+    verificationToken: z.string().min(10),
+    code: z.string().length(6, { message: 'Code must be 6 characters long' }),
+  })
+  .strict();
+
 type LoginInput = z.infer<typeof loginSchema>;
 type RegisterInput = z.infer<typeof registerSchema>;
 type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 type ForgetPasswordInput = z.infer<typeof forgotPasswordSchema>;
 type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+type VerifyUpdateEmailInput = z.infer<typeof verifyUpdateEmailSchema>;
 
 export type {
   LoginInput,
@@ -96,6 +101,7 @@ export type {
   ResetPasswordInput,
   ForgetPasswordInput,
   VerifyEmailInput,
+  VerifyUpdateEmailInput,
 };
 export {
   loginSchema,
@@ -103,28 +109,5 @@ export {
   resetPasswordSchema,
   forgotPasswordSchema,
   verifyEmailSchema,
+  verifyUpdateEmailSchema,
 };
-
-export function validateBody<T extends z.ZodTypeAny>(schema: T) {
-  return async (req: Request, _res: Response, next: NextFunction) => {
-    try {
-      // parseAsync to allow async refinements in future
-      const parsed = await schema.parseAsync(req.body);
-      // attach to request for typed access in controllers
-      (req as unknown as { validatedBody?: z.infer<T> }).validatedBody = parsed;
-      next();
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        // map Zod errors to a clean JSON shape
-        const errors = err.issues.map((e) => ({
-          path: e.path.join("."),
-          message: e.message,
-        }));
-        return _res
-          .status(400)
-          .json({ error: "validation_error", details: errors });
-      }
-      next(err);
-    }
-  };
-}

@@ -4,6 +4,12 @@ Design
 # Node modules
 node_modules/
 
+postman
+
+# Temporary files
+npm-temp/
+temp/
+
 # Environment variables
 .env
 .env.local
@@ -48,3 +54,11 @@ coverage/
 # Local certificates
 *.pem
 *.key
+
+// IDE specific files
+.postman/
+postman/
+.history
+
+.prettierrc
+

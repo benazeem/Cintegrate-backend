@@ -1,7 +1,5 @@
 import { Router } from "express";
 import { asyncHandler } from "@utils/asyncHandler.js";
-import { requireAuth as auth } from "@middleware/auth/requireAuth.js";
-import { requireCsrf as csrf } from "@middleware/auth/requireCsrf.js";
 import {
   deleteAvatarController,
   getBillingController,
@@ -18,32 +16,34 @@ import {
   deleteSessionController,
   deleteAllSessionsController,
   deleteAccountController,
-  updateAccountController,
+  deactivateAccountController,
+  reactivateAccountController,
 } from "./user.controller.js";
 import {
   deleteAllSessionsSchema,
   deleteSessionParamsSchema,
-  updateAccountSchema,
-  updateAvatarSchema,
   updateEmailSchema,
   updateNotificationsSchema,
   updatePasswordSchema,
   updatePrivacySettingsSchema,
   updateProfileSchema,
-  validateBody,
-  validateParams,
 } from "@validation/user.schema.js";
+import { validateBody } from "@validation/validateBody.js";
+import { validateParams } from "@validation/validateParams.js";
+import { avatarUpload } from "@middleware/multer/avatarUpload.js";  
+import { requireActiveAccount } from "@middleware/security/requireActiveAccount.js";
 
 const router = Router();
 
-router.use(auth);
+router.patch("/account/reactivate", asyncHandler(reactivateAccountController)); 
+
+router.use(requireActiveAccount);
 router.get("/profile", asyncHandler(getProfileController));
 router.get("/settings", asyncHandler(getSettingsController));
 router.get("/security", asyncHandler(getSecurityController));
 router.get("/sessions", asyncHandler(getSessionsController));
 router.get("/billing", asyncHandler(getBillingController));
-
-router.use(csrf);
+ 
 router.patch(
   "/profile",
   validateBody(updateProfileSchema),
@@ -51,7 +51,7 @@ router.patch(
 );
 router.patch(
   "/profile/avatar",
-  validateBody(updateAvatarSchema),
+  avatarUpload,
   asyncHandler(updateAvatarController)
 );
 router.delete("/profile/avatar", asyncHandler(deleteAvatarController));
@@ -78,21 +78,18 @@ router.patch(
 
 router.delete(
   "/sessions/:sessionId",
-  validateBody(deleteAllSessionsSchema),
+  validateParams(deleteSessionParamsSchema),
   asyncHandler(deleteSessionController)
 );
 router.delete(
   "/sessions",
-  validateParams(deleteSessionParamsSchema),
+  validateBody(deleteAllSessionsSchema),
   asyncHandler(deleteAllSessionsController)
 );
 // router.patch("/billing/plan", asyncHandler() ) to be done after payment integration
 
-router.delete("/account", asyncHandler(deleteAccountController));
-router.patch(
-  "/account",
-  validateBody(updateAccountSchema),
-  asyncHandler(updateAccountController)
-);
+router.patch("/account/deactivate", asyncHandler(deactivateAccountController));
+router.delete("/account/delete", asyncHandler(deleteAccountController));
+// Request Hard Account Data Deletion Route can be added here in the future
 
 export default router;

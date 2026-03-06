@@ -1,10 +1,5 @@
-import { ACCOUNT_STATUSES } from "constants/accountStatus.js";
-import {
-  Schema,
-  model,
-  type InferSchemaType,
-  type HydratedDocument,
-} from "mongoose";
+import { ACCOUNT_STATUSES } from 'constants/authConsts.js';
+import { Schema, model, type InferSchemaType, type HydratedDocument } from 'mongoose';
 
 const ResetSchema = new Schema(
   {
@@ -19,9 +14,10 @@ const UpdateEmailSchema = new Schema(
   {
     newEmail: { type: String, trim: true, lowercase: true },
     tokenHash: { type: String },
+    code: { type: String },
     expiresAt: { type: Date },
     requestedAt: { type: Date },
-    requestMethod: { type: String }, // "self" | "oauth"
+    requestMethod: { type: String, enum: ['self', 'system', 'admin'] },
   },
   { _id: false }
 );
@@ -31,13 +27,13 @@ const changeMetaSchema = new Schema(
     field: {
       type: String,
       required: true,
-      enum: ["email", "password", "username", "accountStatus", "displayName"],
+      enum: ['email', 'password', 'accountStatus'],
     },
 
     from: { type: Schema.Types.Mixed, default: null }, // previous value
     to: { type: Schema.Types.Mixed, default: null }, // new value
 
-    by: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    by: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 
     reason: { type: String, maxlength: 300, default: null },
 
@@ -45,7 +41,7 @@ const changeMetaSchema = new Schema(
 
     via: {
       type: String,
-      enum: ["user", "admin", "system"],
+      enum: ['user', 'admin', 'system'],
       required: true,
     },
   },
@@ -84,25 +80,28 @@ const providerSchema = new Schema(
   { _id: false } // no separate _id needed per provider
 );
 
-const privacyPrefsSchema = new Schema({
-  profileVisibility: {
-    type: String,
-    enum: ["private", "public", "unlisted"],
-    default: "private",
+const privacyPrefsSchema = new Schema(
+  {
+    profileVisibility: {
+      type: String,
+      enum: ['private', 'public', 'unlisted'],
+      default: 'private',
+    },
+    showEmailOnProfile: {
+      type: Boolean,
+      default: false,
+    },
+    showLinksOnProfile: {
+      type: Boolean,
+      default: true,
+    },
+    allowDiscoverability: {
+      type: Boolean,
+      default: true,
+    },
   },
-  showEmailOnProfile: {
-    type: Boolean,
-    default: false,
-  },
-  showLinksOnProfile: {
-    type: Boolean,
-    default: true,
-  },
-  allowDiscoverability: {
-    type: Boolean,
-    default: true,
-  },
-});
+  { _id: false }
+);
 
 /**
  * Subdocument: notification preferences
@@ -175,6 +174,7 @@ const userSchema = new Schema(
       type: String,
       trim: true,
       maxlength: 80,
+      required: true,
     },
     username: {
       type: String,
@@ -184,6 +184,7 @@ const userSchema = new Schema(
       index: true,
       sparse: true, // allows null without unique conflict
       unique: true,
+      required: true,
     },
     avatarUrl: {
       type: String,
@@ -205,20 +206,27 @@ const userSchema = new Schema(
     },
     role: {
       type: String,
-      enum: ["user", "admin"],
-      default: "user",
+      enum: ['user', 'admin'],
+      default: 'user',
       index: true,
     },
-    plan: {
-      type: String,
-      enum: ["free", "pro", "enterprise"],
-      default: "free",
+    currentPlan: {
+      type: Schema.Types.ObjectId,
+      ref: 'Plan',
     },
+
+    planStartedAt: {
+      type: Date,
+    },
+
+    planEndsAt: {
+      type: Date,  
+    },
+
     usage: {
       type: usageSchema,
       default: () => ({}),
-    },
-    // Auth (password-based)
+    }, 
     passwordHash: {
       type: String,
       required: true,
@@ -268,13 +276,7 @@ const userSchema = new Schema(
 
     // Account Status
 
-    accountStatus: { type: String, enum: ACCOUNT_STATUSES, default: "active" },
-
-    changeHistory: {
-      type: [changeMetaSchema],
-      default: [],
-      select: false,
-    },
+    accountStatus: { type: String, enum: ACCOUNT_STATUSES, default: 'active' },
 
     // Billing
     billingCustomerId: { type: String },
@@ -282,23 +284,30 @@ const userSchema = new Schema(
     subscriptionId: { type: String },
     billingStatus: {
       type: String,
-      enum: ["none", "active", "past_due", "canceled", "incomplete"],
-      default: "none",
+      enum: ['none', 'active', 'past_due', 'canceled', 'incomplete'],
+      default: 'none',
     },
     currentPeriodEnd: { type: Date },
     trialEndsAt: { type: Date },
     cancelAtPeriodEnd: { type: Boolean, default: false },
-
     // Notification settings
     notificationPrefs: {
       type: notificationPrefsSchema,
-      default: () => ({}),
+      default: () => ({
+        emailOnJobComplete: true,
+        inApp: true,
+        marketingEmails: false,
+      }),
     },
-
     // Privacy prefs
     privacyPrefs: {
       type: privacyPrefsSchema,
-      default: () => ({}),
+      default: () => ({
+        profileVisibility: 'private',
+        showEmailOnProfile: false,
+        showLinksOnProfile: true,
+        allowDiscoverability: true,
+      }),
     },
     // Legal / Terms
     termsAcceptedAt: { type: Date },
@@ -307,21 +316,21 @@ const userSchema = new Schema(
     deletedAt: {
       type: Date,
     },
+    changeHistory: {
+      type: [changeMetaSchema],
+      default: [],
+      select: false,
+      cap: 100,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-/**
- * Index to quickly find by provider (Google, GitHub, etc.)
- */
-userSchema.index(
-  { "providers.provider": 1, "providers.providerUserId": 1 },
-  { sparse: true }
-);
+userSchema.index({ 'providers.provider': 1, 'providers.providerUserId': 1 }, { sparse: true });
 
 export type UserData = InferSchemaType<typeof userSchema>;
 export type User = HydratedDocument<UserData>;
 
-export const UserModel = model<UserData>("User", userSchema);
+export const UserModel = model<UserData>('User', userSchema);

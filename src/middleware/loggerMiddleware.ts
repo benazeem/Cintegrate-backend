@@ -1,44 +1,69 @@
-// middleware/devLogger.ts
 import type { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
+import logger from '@utils/logger.js';
 
-const devLogger = (req: Request, res: Response, next: NextFunction): void => {
-    const start = Date.now();
-    
-    // Log when request comes in (optional - remove if you don't want it)
-    console.log(`${getColor('incoming')}→ ${req.method} ${req.url}`);
-    
-    // Log when response is sent
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        const status = res.statusCode;
-        
-        console.log(`${getStatusColor(status)}${getMethodIcon(req.method)} ${req.method} ${req.url} ${status} ${duration}ms\x1b[0m`);
-    });
-    
-    next();
-};
+const isDev = process.env.NODE_ENV !== 'production';
 
-// Helper functions for colors
+/* ---------- DEV helpers (safe: dev only) ---------- */
+
 const getStatusColor = (status: number): string => {
-    if (status >= 500) return '\x1b[31m'; // red for server errors
-    if (status >= 400) return '\x1b[33m'; // yellow for client errors
-    if (status >= 300) return '\x1b[36m'; // cyan for redirects
-    return '\x1b[32m'; // green for success
+  if (status >= 500) return '\x1b[31m'; // red
+  if (status >= 400) return '\x1b[33m'; // yellow
+  if (status >= 300) return '\x1b[36m'; // cyan
+  return '\x1b[32m'; // green
 };
 
-const getMethodIcon = (method: string): string => {
-    const icons: Record<string, string> = {
-        GET: '📥',
-        POST: '📝',
-        PUT: '✏️',
-        DELETE: '🗑️',
-        PATCH: '🩹'
+/* ---------- Middleware ---------- */
+
+export function requestLogger(req: Request, res: Response, next: NextFunction) {
+  const start = process.hrtime.bigint();
+
+  const requestId = randomUUID();
+  res.locals.requestId = requestId;
+  res.setHeader('X-Request-Id', requestId);
+
+  if (isDev) {
+    logger.debug(
+      {
+        requestId,
+        method: req.method,
+        path: req.originalUrl,
+      },
+      'Incoming request'
+    );
+  }
+
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+
+    const logData = {
+      requestId,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: Number(durationMs.toFixed(2)),
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      userId: (req as any).user?._id,
     };
-    return icons[method] || '📄';
-};
 
-const getColor = (type: 'incoming'): string => {
-    return type === 'incoming' ? '\x1b[90m' : ''; // gray for incoming
-};
+    if (isDev) {
+      const color = getStatusColor(res.statusCode);
+      logger.info(
+        logData,
+        `${color}$ ${req.method} ${req.originalUrl} ${res.statusCode} ${logData.durationMs}ms\x1b[0m`
+      );
+      return;
+    }
 
-export default devLogger;
+    if (res.statusCode >= 500) {
+      logger.error(logData, 'Request failed');
+    } else if (res.statusCode >= 400) {
+      logger.warn(logData, 'Request completed with client error');
+    } else {
+      logger.info(logData, 'Request completed');
+    }
+  });
+
+  next();
+}

@@ -1,29 +1,40 @@
-// src/middleware/errorHandler.ts
-import { NextFunction, Request, Response } from "express";
-import { AppError } from "./appError.js";
+import { NextFunction, Request, Response } from 'express';
+import { AppError } from './appError.js';
+import logger from '@utils/logger.js';
 
-const errorHandler = (
-  err: Error,
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  console.error("ERROR:", err);
+const errorHandler = (err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const requestId = res.locals.requestId;
 
-  // If it's a known error (instance of AppError)
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
-      status: "error",
+    logger.error({
+      requestId,
+      name: err.name,
       message: err.message,
-      code: err.code,
+      statusCode: err.statusCode,
       details: err.details,
-      stack: err.stack,
+      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined,
+      method: req.method,
+      path: req.originalUrl,
+      userId: (req as any).user?._id,
     });
+
+    return res.status(err.statusCode).json(err.serialize());
   }
 
+  console.log(err);
+  logger.error({
+    requestId,
+    name: 'UnhandledError',
+    message: 'Unhandled exception',
+    stack: process.env.NODE_ENV !== 'production' ? (err as Error).stack : undefined,
+    method: req.method,
+    path: req.originalUrl,
+    userId: (req as any).user?._id,
+  });
+
   return res.status(500).json({
-    status: "error",
-    message: "Internal Server Error",
+    status: 'error',
+    message: 'Internal Server Error',
   });
 };
 

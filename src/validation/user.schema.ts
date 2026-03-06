@@ -1,7 +1,5 @@
 // src/validation/user.schema.ts
-import { z } from "zod";
-import type { Request, Response, NextFunction } from "express";
-import { ACCOUNT_STATUSES } from "constants/accountStatus.js";
+import { z } from "zod"; 
 
 /* -------------------------
    Body Schemas
@@ -54,8 +52,9 @@ export const updateNotificationsSchema = z
 export const updatePrivacySettingsSchema = z
   .object({
     profileVisibility: z.enum(["public", "private", "unlisted"]).optional(),
-    showActivityStatus: z.boolean().optional(),
-    // extend as needed
+    showEmailOnProfile: z.boolean().optional(),
+    showLinksOnProfile: z.boolean().optional(),
+    allowDiscoverability: z.boolean().optional(),
   })
   .strict();
 
@@ -91,16 +90,7 @@ export const deleteSessionParamsSchema = z
     sessionId: z.string().min(1),
   })
   .strict();
-
-export const updateAccountSchema = z
-  .object({
-    accountStatus: z.enum(ACCOUNT_STATUSES),
-  })
-  .strict();
-/* -------------------------
-   Types
-   -------------------------*/
-
+ 
 export type UpdateAvatarType = z.infer<typeof updateAvatarSchema>;
 export type UpdateProfileType = z.infer<typeof updateProfileSchema>;
 export type UpdateNotificationsType = z.infer<typeof updateNotificationsSchema>;
@@ -111,53 +101,4 @@ export type UpdatePasswordType = z.infer<typeof updatePasswordSchema>;
 export type UpdateEmailType = z.infer<typeof updateEmailSchema>;
 export type DeleteAllSessionsType = z.infer<typeof deleteAllSessionsSchema>;
 export type DeleteSessionParamsType = z.infer<typeof deleteSessionParamsSchema>;
-export type UpdateAccountType = z.infer<typeof updateAccountSchema>;
-
-/* -------------------------
-   Middleware helpers
-   -------------------------*/
-
-// Attach validatedBody to req.validatedBody
-export function validateBody<T extends z.ZodTypeAny>(schema: T) {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const parsed = await schema.parseAsync(req.body);
-      (req as unknown as { validatedBody?: z.infer<T> }).validatedBody = parsed;
-      return next();
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        const errors = err.issues.map((e) => ({
-          path: e.path.join("."),
-          message: e.message,
-        }));
-        return res
-          .status(400)
-          .json({ error: "validation_error", details: errors });
-      }
-      return next(err);
-    }
-  };
-}
-
-// Validate route params (attach to req.validatedParams)
-export function validateParams<T extends z.ZodTypeAny>(schema: T) {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const parsed = await schema.parseAsync(req.params);
-      (req as unknown as { validatedParams?: z.infer<T> }).validatedParams =
-        parsed;
-      return next();
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        const errors = err.issues.map((e) => ({
-          path: e.path.join("."),
-          message: e.message,
-        }));
-        return res
-          .status(400)
-          .json({ error: "validation_error", details: errors });
-      }
-      return next(err);
-    }
-  };
-}
+ 

@@ -1,106 +1,108 @@
-import { ACCOUNT_STATUSES, AccountStatus } from "constants/accountStatus.js";
-import bcrypt from "bcrypt";
+import bcrypt from 'bcrypt';
 import {
+  BadRequestError,
   ConflictError,
   InternalServerError,
   NotFoundError,
-} from "@middleware/error/index.js";
-import { Session, SessionModel } from "@models/Session.js";
-import { type User, UserModel } from "@models/User.js";
-import { returnUserData } from "@utils/returnUserData.js";
-import { UpdateAvatarType } from "@validation/user.schema.js";
-import mongoose, { ObjectIdSchemaDefinition } from "mongoose";
-import { generateVerificationToken, verifyToken } from "@utils/tokens.js";
-import transporter from "config/mail.js";
-import { verifyUpdatedEmailTemplate } from "./email/templlate/verifyUpdatedEmail.js";
+  UnauthenticatedError,
+} from '@middleware/error/index.js';
+import { SessionModel } from '@models/Session.js';
+import { type User, UserModel } from '@models/User.js';
+import { sanitizeUserResponse } from '@utils/sanitizeUserResponse.js';
+import { UpdateNotificationsType, UpdatePrivacySettingsType } from '@validation/user.schema.js';
+import { generateVerificationToken } from '@utils/tokens.js';
+import sendUpdateEmailLink from '@utils/emails/sender/sendUpdateEmailLink.js';
+import sendOldEmailVerificationForEmailUpdate from '@utils/emails/sender/sendOldEmailVerificationForEmailUpdate.js';
+import { withTransaction } from '@db/withTransaction.js';
 
-export const getProfile = async (
-  userId: ObjectIdSchemaDefinition
-): Promise<User> => {
-  const user = await UserModel.findById(userId).select(
-    "-passwordHash -emailVerificationToken -resetPasswordToken -createdAt -updatedAt"
-  );
+export const getProfile = async (userId: string): Promise<User> => {
+  const user = await UserModel.findById(userId)
+    .select('-passwordHash -emailVerificationToken -resetPasswordToken -createdAt -updatedAt')
+    .catch((err) => {
+      throw new InternalServerError('Could not fetch user profile', err.message);
+    });
   if (!user) {
-    throw new Error("User not found");
+    throw new NotFoundError('User not found');
   }
   return user;
 };
 
-export const updateProfile = async (
-  userId: ObjectIdSchemaDefinition,
-  updateData: Partial<User>
-): Promise<Partial<User>> => {
+export const updateProfile = async (userId: string, updateData: Partial<User>): Promise<Partial<User>> => {
   const user = await UserModel.findByIdAndUpdate(userId, updateData, {
     new: true,
   });
 
   if (!user) {
-    throw new Error("User not found");
+    throw new NotFoundError('User not found');
   }
-  const resUser = returnUserData(user, "profile");
+  const resUser = sanitizeUserResponse(user, 'profile');
   return resUser;
 };
 
 export const updateAvatar = async (
-  userId: ObjectIdSchemaDefinition,
-  avatarData: UpdateAvatarType
+  userId: string,
+  avatarData: Express.Multer.File | undefined
 ): Promise<Partial<User>> => {
-  // user will send a file not url so treat it here and store it in a location on cloud or locally localstack s3
-  const avatarUrl = `/uploads/avatars/${userId.toString()}/${Date.now()}_${avatarData}`;
-  const user = await UserModel.findByIdAndUpdate(
-    userId,
-    { avatarUrl: avatarUrl },
-    { new: true }
-  );
-  if (!user) {
-    throw new Error("User not found");
+  if (!avatarData) {
+    throw new BadRequestError('Avatar file not found');
   }
-  const resUser = returnUserData(user, "profile");
+  const { filename, path } = avatarData;
+
+  //TODO: Add logic to move the file from temp to cloud storage like s3 or similar
+  // For now, we will just use the filename as is
+  const avatarUrl = `${path}/${filename}`;
+
+  const user = await UserModel.findByIdAndUpdate(userId, { avatarUrl: avatarUrl }, { new: true });
+  if (!user) {
+    throw new NotFoundError('User not found');
+  }
+  const resUser = sanitizeUserResponse(user, 'profile');
   return resUser;
 };
 
-export const deleteAvatar = async (
-  userId: ObjectIdSchemaDefinition
-): Promise<void> => {
-  const user = await UserModel.findByIdAndUpdate(
-    userId,
-    { $unset: { avatarUrl: "" } },
-    { new: true }
-  );
+export const deleteAvatar = async (userId: string): Promise<void> => {
+  const user = await UserModel.findById(userId);
   if (!user) {
-    throw new Error("User not found");
+    throw new NotFoundError('User not found');
   }
+  const oldAvatarUrl = user.avatarUrl;
+
+  /** TODO:
+   * Retrieves the current avatar URL from the user object before updating it.
+   * This variable stores the old avatar URL to enable cleanup of the previous avatar file
+   * from cloud storage if a new avatar is uploaded during the update process.
+   * If no avatar currently exists, this will be undefined or null, and the cleanup step should be skipped.
+   */
+  if (!oldAvatarUrl) {
+    return;
+  }
+
+  await UserModel.findByIdAndUpdate(userId, { $unset: { avatarUrl: '' } }, { new: true });
   return;
 };
 
-export const getSettings = async (
-  userId: ObjectIdSchemaDefinition
-): Promise<Partial<User>> => {
-  const user = await UserModel.findById(userId).select(
-    "emailNotifications privacySettings"
-  );
+export const getSettings = async (userId: string): Promise<Partial<User>> => {
+  const user = await UserModel.findById(userId).select('emailNotifications privacySettings');
   if (!user) {
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
-  const resUser = returnUserData(user as User, "settings");
+  const resUser = sanitizeUserResponse(user as User, 'settings');
   return resUser;
 };
 
-export const getSecurity = async (
-  userId: ObjectIdSchemaDefinition
-): Promise<Partial<User>> => {
+export const getSecurity = async (userId: string): Promise<Partial<User>> => {
   const user = await UserModel.findById(userId).select(
-    "email phoneNumber passwordHash emailVerified phoneVerified lastPasswordChangeAt twoFactorEnabled oauthProviders"
+    'email phoneNumber passwordHash emailVerified phoneVerified lastPasswordChangeAt twoFactorEnabled oauthProviders'
   );
   if (!user) {
-    throw new Error("User not found");
+    throw new NotFoundError('User not found');
   }
-  const resUser = returnUserData(user as User, "security");
+  const resUser = sanitizeUserResponse(user as User, 'security');
   return resUser;
 };
 
 export const getSessions = async (
-  userId: ObjectIdSchemaDefinition,
+  userId: string,
   sessioId: string
 ): Promise<
   Array<{
@@ -115,22 +117,14 @@ export const getSessions = async (
   }>
 > => {
   const sessions = await SessionModel.find({ userId: userId });
-  if (!sessions) {
-    throw new InternalServerError("Could not fetch sessions");
-  }
 
   const resSessions = sessions.map((session) => {
     return {
       sessionId: session.sessionId,
       current: session.sessionId === sessioId,
-      device:
-        session.device?.vendor +
-        " " +
-        session.device?.model +
-        " " +
-        session.device?.type,
-      browser: session.browser!.name + " " + session.browser!.version,
-      location: session.city + ", " + session.country,
+      device: session.device?.vendor + ' ' + session.device?.model + ' ' + session.device?.type,
+      browser: session.browser!.name + ' ' + session.browser!.version,
+      location: session.city + ', ' + session.country,
       createdAt: session.createdAt,
       lastUsedAt: session.lastUsedAt,
       revokedAt: session.revokedAt,
@@ -139,144 +133,155 @@ export const getSessions = async (
   return resSessions;
 };
 
-export const getBilling = async (
-  userId: ObjectIdSchemaDefinition
-): Promise<Partial<User>> => {
-  const user = await UserModel.findById(userId).select("plan billingInfo");
+export const getBilling = async (userId: string): Promise<Partial<User>> => {
+  const user = await UserModel.findById(userId).select('plan billingInfo');
   if (!user) {
-    throw new Error("User not found");
+    throw new NotFoundError('User not found');
   }
-  const resUser = returnUserData(user as User, "billing");
+  const resUser = sanitizeUserResponse(user as User, 'billing');
   return resUser;
 };
 
 export const updateNotifications = async (
-  userId: ObjectIdSchemaDefinition,
-  notificationPrefs: any
+  userId: string,
+  notificationPrefs: UpdateNotificationsType
 ): Promise<Partial<User>> => {
-  const user = await UserModel.findByIdAndUpdate(
-    userId,
-    { emailNotifications: notificationPrefs },
-    { new: true }
-  );
-  if (!user) {
-    throw new Error("User not found");
+  const update: Record<string, any> = {};
+
+  if (notificationPrefs.emailNotifications !== undefined) {
+    update['notificationPrefs.emailOnJobComplete'] = notificationPrefs.emailNotifications;
   }
-  const resUser = returnUserData(user as User, "settings");
+
+  if (notificationPrefs.pushNotifications !== undefined) {
+    update['notificationPrefs.inApp'] = notificationPrefs.pushNotifications;
+  }
+
+  if (notificationPrefs.newsletter !== undefined) {
+    update['notificationPrefs.marketingEmails'] = notificationPrefs.newsletter;
+  }
+
+  const user = await UserModel.findByIdAndUpdate(userId, { $set: update }, { new: true });
+  if (!user) {
+    throw new NotFoundError('User not found');
+  }
+  const resUser = sanitizeUserResponse(user as User, 'settings');
   return resUser;
 };
 
 export const updatePrivacySettings = async (
-  userId: ObjectIdSchemaDefinition,
-  privacyPrefs: any
+  userId: string,
+  privacyPrefs: UpdatePrivacySettingsType
 ): Promise<Partial<User>> => {
-  const user = await UserModel.findByIdAndUpdate(
-    userId,
-    { privacySettings: privacyPrefs },
-    { new: true }
-  );
-  if (!user) {
-    throw new Error("User not found");
+  const update: Record<string, any> = {};
+  if (privacyPrefs.profileVisibility !== undefined) {
+    update['privacyPrefs.profileVisibility'] = privacyPrefs.profileVisibility;
   }
-  const resUser = returnUserData(user as User, "settings");
+  if (privacyPrefs.showEmailOnProfile !== undefined) {
+    update['privacyPrefs.showEmailOnProfile'] = privacyPrefs.showEmailOnProfile;
+  }
+  if (privacyPrefs.showLinksOnProfile !== undefined) {
+    update['privacyPrefs.showLinksOnProfile'] = privacyPrefs.showLinksOnProfile;
+  }
+  if (privacyPrefs.allowDiscoverability !== undefined) {
+    update['privacyPrefs.allowDiscoverability'] = privacyPrefs.allowDiscoverability;
+  }
+
+  const user = await UserModel.findByIdAndUpdate(userId, { $set: update }, { new: true });
+  if (!user) {
+    throw new NotFoundError('User not found');
+  }
+  const resUser = sanitizeUserResponse(user as User, 'settings');
   return resUser;
 };
 
 export const updatePassword = async (
-  userId: ObjectIdSchemaDefinition,
+  userId: string,
   currentPassword: string,
   newPassword: string
 ): Promise<void> => {
-  const user = await UserModel.findById(userId);
+  const user = await UserModel.findById(userId).select('+passwordHash +changeHistory');
   if (!user) {
-    throw new Error("User not found");
+    throw new NotFoundError('User not found');
   }
+
   const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!isMatch) {
-    throw new Error("Current password is incorrect");
+    throw new UnauthenticatedError('Current password is incorrect');
   }
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   user.lastPasswordChangeAt = new Date();
   user.passwordHash = hashedPassword;
+  user.changeHistory.push({
+    field: 'password',
+    by: user._id,
+    from: '',
+    to: '',
+    reason: 'User initiated password change',
+    at: new Date(),
+    via: 'user',
+  });
   await user.save();
   return;
 };
 
-export const updateEmail = async (
-  userId: ObjectIdSchemaDefinition,
-  newEmail: string
-): Promise<void> => {
+export const updateEmail = async (userId: string, newEmail: string): Promise<void> => {
   const user = await UserModel.findById(userId);
   if (!user) {
-    throw new NotFoundError("User not found");
+    throw new NotFoundError('User not found');
   }
   if (user.email === newEmail) {
-    throw new ConflictError("New email is the same as the current email");
+    throw new ConflictError('New email is the same as the current email');
   }
   const emailInUse = await UserModel.findOne({ email: newEmail });
   if (emailInUse) {
-    throw new ConflictError("Email is already in use");
+    throw new ConflictError('Email is already in use');
   }
   const token = generateVerificationToken();
+  const code = Math.floor(100000 + Math.random() * 900000)
+    .toString()
+    .slice(0, 6);
+  const codeHash = await bcrypt.hash(code, 10);
 
-  const updateEmaillUrl = `${
-    process.env.APP_URL
-  }/verify-email-change?token=${encodeURIComponent(
-    token.raw
-  )}&userId=${encodeURIComponent(
-    user._id.toString()
-  )}&newEmail=${encodeURIComponent(newEmail)}`;
+  const updateEmailUrl = `${process.env.APP_URL}/verify-email-change?token=${encodeURIComponent(token.raw)}`;
 
-  const { subject, text, html } = verifyUpdatedEmailTemplate(
-    user.displayName ?? user.username ?? null,
-    updateEmaillUrl
-  );
-
-  try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
-      to: newEmail,
-      subject: subject,
-      text: text,
-      html: html,
-    });
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new InternalServerError(
-      "Failed to send verification email",
-      errorMessage
-    );
-  }
   user.pendingEmailChange = {
     newEmail: newEmail,
+    code: codeHash,
     tokenHash: token.hash,
-    expiresAt: new Date(Date.now() + 3600 * 1000), // 1 hour
+    expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
     requestedAt: new Date(),
-    requestMethod: "self",
+    requestMethod: 'self',
   };
   await user.save();
+
+  console.log('Update Email URL:', updateEmailUrl, 'code:', code);
+  // send verification code to old email
+  sendOldEmailVerificationForEmailUpdate(user, code);
+  sendUpdateEmailLink(user, newEmail, updateEmailUrl);
   return;
 };
 
-export const deleteSession = async (
-  userId: ObjectIdSchemaDefinition,
-  sessionId: string
-): Promise<void> => {
+export const deleteSession = async (userId: string, sessionId: string): Promise<void> => {
   const session = await SessionModel.findOne({
     userId: userId,
     sessionId: sessionId,
   });
 
   if (!session) {
-    throw new Error("Session not found");
+    throw new NotFoundError('Session not found');
   }
+  if (session.revokedAt) {
+    throw new BadRequestError('Session already revoked');
+  }
+
   session.revokedAt = new Date();
+  session.valid = false;
   await session.save();
   return;
 };
 
 export const deleteAllSessions = async (
-  userId: ObjectIdSchemaDefinition,
+  userId: string,
   currentSessionId: string,
   removeCurrent: boolean | undefined
 ): Promise<void> => {
@@ -284,93 +289,125 @@ export const deleteAllSessions = async (
   if (!removeCurrent) {
     filter.sessionId = { $ne: currentSessionId };
   }
-  await SessionModel.updateMany(filter, { revokedAt: new Date() }).exec();
+  await SessionModel.updateMany(filter, { revokedAt: new Date(), valid: false })
+    .exec()
+    .catch((err) => {
+      throw new InternalServerError('Could not revoke sessions', err.message);
+    });
   return;
 };
 
-export const deleteAccount = async (
-  userId: ObjectIdSchemaDefinition
-): Promise<void> => {
-  const session = await mongoose.startSession();
-  try {
-    session.startTransaction();
+export const deleteAccount = async (userId: string): Promise<void> => {
+  return withTransaction(async (session) => {
     await UserModel.findByIdAndUpdate(
       userId,
-      { deletedAt: new Date(), accountStatus: "deleted" },
+      {
+        deletedAt: new Date(),
+        accountStatus: 'delete',
+        $push: {
+          changeHistory: {
+            $each: [
+              {
+                field: 'accountStatus',
+                from: 'active',
+                to: 'delete',
+                by: userId,
+                reason: 'User deleted account',
+                at: new Date(),
+                via: 'user',
+              },
+            ],
+            $slice: -100,
+          },
+        },
+      },
       { session }
     );
     await SessionModel.deleteMany({ userId }, { session });
-    await session.commitTransaction();
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
-  return;
+  });
 };
 
-export const updateAccount = async (
-  userId: ObjectIdSchemaDefinition,
-  updateData: AccountStatus,
-  currentSessionId: string
-): Promise<Partial<User>> => {
-  const user = await UserModel.findById(userId);
+export const reactivateAccount = async (userId: string): Promise<Partial<User>> => {
+  const user = await UserModel.findById(userId).select('+changeHistory +role');
   if (!user) {
-    throw new Error("User not found");
+    throw new NotFoundError('User not found');
   }
-  const latestStatusEvent = await UserModel.aggregate([
-    { $match: { _id: userId } },
-    { $unwind: "$changeHistory" },
-    { $match: { "changeHistory.field": "accountStatus" } },
-    { $sort: { "changeHistory.at": -1 } },
-    { $limit: 1 },
-    { $replaceRoot: { newRoot: "$changeHistory" } },
-  ]);
-  let updatedUser;
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
-    if (
-      user.role === "user" &&
-      updateData !== "disabled" &&
-      updateData !== "active"
-    ) {
-      throw new Error("Only admin can do this operation");
-    } else if (
-      user.accountStatus === "disabled" &&
-      latestStatusEvent[0].via !== "user" &&
-      updateData === "active"
-    ) {
-      throw new Error(
-        "Disabled by admin, account can only be activated by admin"
-      );
-    } else {
-      updatedUser = await UserModel.findByIdAndUpdate(
-        userId,
-        { accountStatus: updateData },
-        { new: true, session }
-      );
-
-      await SessionModel.deleteMany(
-        {
-          userId: user._id,
-          sessionId: { $ne: currentSessionId },
+  if (user.accountStatus !== 'deactive' && user.accountStatus !== 'delete') {
+    throw new BadRequestError(
+      'Account is not deactivated or deleted other than that cannot be reactivated. Contact support.'
+    );
+  }
+  const updatedUser = await UserModel.findByIdAndUpdate(
+    userId,
+    {
+      accountStatus: 'active',
+      deletedAt: null,
+      $push: {
+        changeHistory: {
+          $each: [
+            {
+              field: 'accountStatus',
+              from: user.accountStatus,
+              to: 'active',
+              by: user._id,
+              reason: 'Account reactivated',
+              at: new Date(),
+              via: user.role,
+            },
+          ],
+          $slice: -100,
         },
-        { session }
-      );
+      },
+    },
+    { new: true }
+  );
+  if (!updatedUser) {
+    throw new NotFoundError('User not found');
+  }
+  const resUser = sanitizeUserResponse(updatedUser, 'profile');
+
+  return resUser;
+};
+
+export const deactivateAccount = async (userId: string): Promise<Partial<User>> => {
+  return withTransaction(async (session) => {
+    const user = await UserModel.findById(userId).select('+changeHistory +role');
+    if (!user) {
+      throw new NotFoundError('User not found');
     }
-    await session.commitTransaction();
+    const updatedUser = await UserModel.findByIdAndUpdate(
+      userId,
+      {
+        accountStatus: 'deactive',
+        $push: {
+          changeHistory: {
+            $each: [
+              {
+                field: 'accountStatus',
+                from: user.accountStatus,
+                to: 'deactive',
+                by: user._id,
+                reason: 'Account status updated',
+                at: new Date(),
+                via: user.role,
+              },
+            ],
+            $slice: -100,
+          },
+        },
+      },
+      { new: true, session }
+    );
+    await SessionModel.deleteMany(
+      {
+        userId: user._id,
+      },
+      { session }
+    );
     if (!updatedUser) {
-      throw new Error("User not found after update");
+      throw new NotFoundError('User not found');
     }
-    const resUser = returnUserData(updatedUser, "profile");
+    const resUser = sanitizeUserResponse(updatedUser, 'profile');
     return resUser;
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  }
-  finally {
-    session.endSession();
-  }
+  });
 };
